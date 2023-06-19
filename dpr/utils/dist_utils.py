@@ -16,11 +16,14 @@ import torch.distributed as dist
 
 
 def get_rank():
-    return dist.get_rank()
+    # return dist.get_rank()
+    return os.environ['RANK']
 
 
 def get_world_size():
-    return dist.get_world_size()
+    # return dist.get_world_size()
+    return os.environ['WORLD_SIZE']
+
 
 
 def get_default_group():
