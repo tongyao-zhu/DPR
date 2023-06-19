@@ -26,7 +26,7 @@ model_file:
 
 # TODO: rename to distributed_rank
 local_rank: -1
-global_loss_buf_sz: 592000
+global_loss_buf_sz: 1592000
 device:
 distributed_world_size:
 distributed_port:

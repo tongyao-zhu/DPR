@@ -33,7 +33,7 @@ def all_reduce(tensor, group=None):
     return dist.all_reduce(tensor, group=group)
 
 
-def all_gather_list(data, group=None, max_size=16384):
+def all_gather_list(data, group=None, max_size=35000):
     """Gathers arbitrary data from all nodes into a list.
     Similar to :func:`~torch.distributed.all_gather` but for arbitrary Python
     data. Note that *data* must be picklable.

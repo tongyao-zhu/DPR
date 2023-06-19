@@ -83,6 +83,7 @@ class BiEncoder(nn.Module):
         attn_mask: T,
         fix_encoder: bool = False,
         representation_token_pos=0,
+        extraction_layer_num = None,
     ) -> (T, T, T):
         sequence_output = None
         pooled_output = None
@@ -106,6 +107,7 @@ class BiEncoder(nn.Module):
                     segments,
                     attn_mask,
                     representation_token_pos=representation_token_pos,
+                    extraction_layer_num = extraction_layer_num
                 )
 
         return sequence_output, pooled_output, hidden_states
@@ -137,6 +139,35 @@ class BiEncoder(nn.Module):
         )
 
         return q_pooled_out, ctx_pooled_out
+
+    def get_average_seq_rep(self, mask, sequence_vec, use_cls = False):
+        """
+        get the average seq representation.
+        mask: should have shape (B, L)
+        sequence_vec: should have shape (B, L, D)
+        """
+        if not use_cls:
+            mask[:, 0] = 0
+        denom = torch.sum(mask, -1, keepdim=True)
+        feat = torch.sum(sequence_vec * mask.unsqueeze(-1), dim=1) / denom
+        return feat
+
+    def get_last_token_rep(self, mask, sequence_vec):
+        """
+        Get the last token's representation
+        mask: should have shape (B, L)
+        sequence_vec: should have shape (B, L, D)
+        Returns a tensor with shape (B,D)
+        """
+        B, L, D = sequence_vec.shape
+        # %%
+        last_idx = (torch.sum(mask, dim=-1) - 1).long()
+        new_mask = torch.zeros_like(mask)
+        new_mask[torch.arange(mask.size(0)), last_idx] = 1
+        new_mask = new_mask.unsqueeze(-1)
+        result = torch.sum(sequence_vec * new_mask, dim=1)
+        assert result.size(0) == B and result.size(1) == D
+        return result
 
     def create_biencoder_input(
         self,
@@ -251,6 +282,146 @@ class BiEncoder(nn.Module):
         return self.state_dict()
 
 
+class BiEncoderExpanded(BiEncoder):
+    def forward(
+            self,
+            question_ids: T,
+            question_segments: T,
+            question_attn_mask: T,
+            context_ids: T,
+            ctx_segments: T,
+            ctx_attn_mask: T,
+            encoder_type: str = None,
+            representation_token_pos=0,
+    ) -> Tuple[T, T]:
+        q_encoder = self.question_model if encoder_type is None or encoder_type == "question" else self.ctx_model
+        _q_seq, q_pooled_out, _q_hidden = self.get_representation(
+            q_encoder,
+            question_ids,
+            question_segments,
+            question_attn_mask,
+            self.fix_q_encoder,
+            representation_token_pos=representation_token_pos,
+        )
+        # print(f"question_ids: {question_ids.shape}, question_attention_mask {question_attn_mask.shape}")
+        # for x, name in zip([_q_seq, q_pooled_out, _q_hidden], ["q_seq", "q_pooled_out", "q_hidden"]):
+        #     if x is None:
+        #         print(f"{name} is NOne")
+        #         continue
+        #     print(f"{name} shape: {x.shape}")
+
+        ctx_encoder = self.ctx_model if encoder_type is None or encoder_type == "ctx" else self.question_model
+        _ctx_seq, ctx_pooled_out, _ctx_hidden = self.get_representation(
+            ctx_encoder, context_ids, ctx_segments, ctx_attn_mask, self.fix_ctx_encoder
+        )
+        # for x, name in zip([_ctx_seq, ctx_pooled_out, _ctx_hidden], ["_ctx_seq", "ctx_pooled_out", "_ctx_hidden"]):
+        #     if x is None:
+        #         print(f"{name} is NOne")
+        #         continue
+        #     print(f"{name} shape: {x.shape}")
+        # %%
+        if q_pooled_out is not None:
+            avg_pooled_q = self.get_average_seq_rep(question_attn_mask, _q_seq)
+            q_pooled_out = torch.cat([q_pooled_out, avg_pooled_q], dim = -1)
+
+        avg_pooled_ctx = self.get_average_seq_rep(ctx_attn_mask, _ctx_seq)
+        ctx_pooled_out = torch.cat([ctx_pooled_out, avg_pooled_ctx], dim=-1)
+        # print(f'q pooled output final shape {q_pooled_out.shape}, ctx pooled output shape {ctx_pooled_out.shape}')
+
+        return q_pooled_out, ctx_pooled_out
+class BiEncoderLastConcat(BiEncoder):
+    def forward(
+            self,
+            question_ids: T,
+            question_segments: T,
+            question_attn_mask: T,
+            context_ids: T,
+            ctx_segments: T,
+            ctx_attn_mask: T,
+            encoder_type: str = None,
+            representation_token_pos=0,
+    ) -> Tuple[T, T]:
+        q_encoder = self.question_model if encoder_type is None or encoder_type == "question" else self.ctx_model
+        _q_seq, q_pooled_out, _q_hidden = self.get_representation(
+            q_encoder,
+            question_ids,
+            question_segments,
+            question_attn_mask,
+            self.fix_q_encoder,
+            representation_token_pos=representation_token_pos,
+        )
+        # print(f"question_ids: {question_ids.shape}, question_attention_mask {question_attn_mask.shape}")
+        # for x, name in zip([_q_seq, q_pooled_out, _q_hidden], ["q_seq", "q_pooled_out", "q_hidden"]):
+        #     if x is None:
+        #         print(f"{name} is NOne")
+        #         continue
+        #     print(f"{name} shape: {x.shape}")
+
+        ctx_encoder = self.ctx_model if encoder_type is None or encoder_type == "ctx" else self.question_model
+        _ctx_seq, ctx_pooled_out, _ctx_hidden = self.get_representation(
+            ctx_encoder, context_ids, ctx_segments, ctx_attn_mask, self.fix_ctx_encoder
+        )
+        # for x, name in zip([_ctx_seq, ctx_pooled_out, _ctx_hidden], ["_ctx_seq", "ctx_pooled_out", "_ctx_hidden"]):
+        #     if x is None:
+        #         print(f"{name} is NOne")
+        #         continue
+        #     print(f"{name} shape: {x.shape}")
+        # %%
+        if q_pooled_out is not None:
+            last_q_token_emb = self.get_last_token_rep(question_attn_mask, _q_seq)
+            q_pooled_out = torch.cat([q_pooled_out, last_q_token_emb], dim = -1)
+
+        last_ctx_token_emb = self.get_last_token_rep(ctx_attn_mask, _ctx_seq)
+        ctx_pooled_out = torch.cat([ctx_pooled_out, last_ctx_token_emb], dim=-1)
+        # print(f'q pooled output final shape {q_pooled_out.shape}, ctx pooled output shape {ctx_pooled_out.shape}')
+
+        return q_pooled_out, ctx_pooled_out
+
+class BiEncoderLayerExtraction(BiEncoder):
+    def __init__(
+        self,
+        question_model: nn.Module,
+        ctx_model: nn.Module,
+        fix_q_encoder: bool = False,
+        fix_ctx_encoder: bool = False,
+        q_layer_num: int = 12,
+        ctx_layer_num: int=12,
+    ):
+        super().__init__(question_model=question_model, ctx_model=ctx_model,fix_ctx_encoder=fix_ctx_encoder,
+                         fix_q_encoder=fix_q_encoder)
+        self.q_layer_num = q_layer_num
+        self.ctx_layer_num = ctx_layer_num
+        assert self.q_layer_num <= question_model.config.num_hidden_layers and self.ctx_layer_num <= ctx_model.config.num_hidden_layers
+        logger.info(f"Initialized layer extraction BERT, q layer num {self.q_layer_num}, ctx layer num {self.ctx_layer_num} ")
+
+    def forward(
+        self,
+        question_ids: T,
+        question_segments: T,
+        question_attn_mask: T,
+        context_ids: T,
+        ctx_segments: T,
+        ctx_attn_mask: T,
+        encoder_type: str = None,
+        representation_token_pos=0,
+    ) -> Tuple[T, T]:
+        q_encoder = self.question_model if encoder_type is None or encoder_type == "question" else self.ctx_model
+        _q_seq, q_pooled_out, _q_hidden = self.get_representation(
+            q_encoder,
+            question_ids,
+            question_segments,
+            question_attn_mask,
+            self.fix_q_encoder,
+            representation_token_pos=representation_token_pos,
+            extraction_layer_num = self.q_layer_num
+        )
+        # need to know the shape of the q_hidden, catch_size, sequence_length, hidden_size?
+        ctx_encoder = self.ctx_model if encoder_type is None or encoder_type == "ctx" else self.question_model
+        _ctx_seq, ctx_pooled_out, _ctx_hidden = self.get_representation(
+            ctx_encoder, context_ids, ctx_segments, ctx_attn_mask, self.fix_ctx_encoder, extraction_layer_num = self.ctx_layer_num
+        )
+        # print(f"q pooled out shape {q_pooled_out.shape}, ctx_pooled_out shape {ctx_pooled_out.shape}")
+        return q_pooled_out, ctx_pooled_out
 class BiEncoderNllLoss(object):
     def calc(
         self,

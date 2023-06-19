@@ -61,6 +61,13 @@ def init_hf_roberta_tenzorizer(args, **kwargs):
 
 BIENCODER_INITIALIZERS = {
     "hf_bert": init_hf_bert_biencoder,
+    "hf_bert_expanded": init_hf_bert_biencoder,
+    "hf_bert_large": init_hf_bert_biencoder,
+    "hf_bert_lastcat": init_hf_bert_biencoder,
+    "hf_bert_extraction": init_hf_bert_biencoder,
+    "hf_bert_extraction_12_3": init_hf_bert_biencoder,
+    "hf_bert_extraction_12_9": init_hf_bert_biencoder,
+
     "pytext_bert": init_pytext_bert_biencoder,
     "fairseq_roberta": init_fairseq_roberta_biencoder,
 }

@@ -357,6 +357,8 @@ class BiEncoderTrainer(object):
                 q_ids, q_segments = (
                     (biencoder_input.question_ids, biencoder_input.question_segments) if j == 0 else (None, None)
                 )
+                print("q_ids", q_ids, "q_segments", q_segments)
+                print("config n gpu", cfg.n_gpu)
 
                 if j == 0 and cfg.n_gpu > 1 and q_ids.size(0) == 1:
                     # if we are in DP (but not in DDP) mode, all model input tensors should have batch size >1 or 0,
@@ -365,9 +367,15 @@ class BiEncoderTrainer(object):
 
                 ctx_ids_batch = ctxs_ids[batch_start : batch_start + sub_batch_size]
                 ctx_seg_batch = ctxs_segments[batch_start : batch_start + sub_batch_size]
-
+                print("q_ids", q_ids)
+                print("tensorizer is ", self.tensorizer)
                 q_attn_mask = self.tensorizer.get_attn_mask(q_ids)
                 ctx_attn_mask = self.tensorizer.get_attn_mask(ctx_ids_batch)
+
+                print("Q attention mask",q_attn_mask)
+                # print("Shape", q_attn_mask.shape)
+                print("Ctx attention mask", ctx_attn_mask)
+                # print("Context shape", ctx_attn_mask.shape)
                 with torch.no_grad():
                     q_dense, ctx_dense = self.biencoder(
                         q_ids,
@@ -379,7 +387,7 @@ class BiEncoderTrainer(object):
                         encoder_type=encoder_type,
                         representation_token_pos=rep_positions,
                     )
-
+                print("Q_dense", q_dense)
                 if q_dense is not None:
                     q_represenations.extend(q_dense.cpu().split(1, dim=0))
 
